@@ -1,0 +1,52 @@
+"","State","rural_urban","statename","fipsnum"
+"1","AK",4.8,"Alaska",2
+"2","AL",3.02,"Alabama",1
+"3","AR",3.73,"Arkansas",5
+"4","AZ",1.64,"Arizona",4
+"5","CA",1.35,"California",6
+"6","CO",2.34,"Colorado",8
+"7","CT",1.83,"Connecticut",9
+"8","DC",1,"District of Columbia",11
+"9","DE",2.08,"Delaware",10
+"10","FL",1.6,"Florida",12
+"11","GA",2.31,"Georgia",13
+"12","HI",5,"Hawaii",15
+"13","IA",4.04,"Iowa",19
+"14","ID",3.57,"Idaho",16
+"15","IL",1.77,"Illinois",17
+"16","IN",2.5,"Indiana",18
+"17","KS",3.2,"Kansas",20
+"18","KY",3.63,"Kentucky",21
+"19","LA",2.72,"Louisiana",22
+"20","MA",1.34,"Massachusetts",25
+"21","MD",1.32,"Maryland",24
+"22","ME",3.82,"Maine",23
+"23","MI",2.42,"Michigan",26
+"24","MN",2.54,"Minnesota",27
+"25","MO",2.7,"Missouri",29
+"26","MS",4.35,"Mississippi",28
+"27","MT",5.11,"Montana",30
+"28","NC",2.79,"North Carolina",37
+"29","ND",5.15,"North Dakota",38
+"30","NE",3.73,"Nebraska",31
+"31","NH",2.79,"New Hampshire",33
+"32","NJ",1.14,"New Jersey",34
+"33","NM",3.42,"New Mexico",35
+"34","NV",1.62,"Nevada",32
+"35","NY",1.49,"New York",36
+"36","OH",2.1,"Ohio",39
+"37","OK",2.95,"Oklahoma",40
+"38","OR",2.28,"Oregon",41
+"39","PA",2.12,"Pennsylvania",42
+"40","RI",1,"Rhode Island",44
+"41","SC",2.82,"South Carolina",45
+"42","SD",5.28,"South Dakota",46
+"43","TN",2.69,"Tennessee",47
+"44","TX",1.84,"Texas",48
+"45","UT",2.52,"Utah",49
+"46","VA",1.99,"Virginia",51
+"47","VT",5.09,"Vermont",50
+"48","WA",2,"Washington",53
+"49","WI",2.9,"Wisconsin",55
+"50","WV",4.02,"West Virginia",54
+"51","WY",5.34,"Wyoming",56

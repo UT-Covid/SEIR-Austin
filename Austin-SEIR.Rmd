@@ -1,0 +1,1160 @@
+---
+title: "new_presentation"
+output: 
+  beamer_presentation:
+    keep_tex: false
+    template: svm-latex-beamer.tex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      out.width = "\\textwidth", 
+                      fig.pos = "!h"
+)
+```
+
+
+```{r setup2, include=FALSE, echo=F, cache=F}
+library(pomp)
+library(grid)
+library(gridExtra)
+library(tidyverse)
+library(lubridate)
+library(magrittr)
+library(data.table)
+library(readxl)
+library(ggplot2)
+library(cowplot)
+
+
+source("code/common/small_func.R")
+
+if( !exists("run.name") ) {
+  run.name="20210124"
+}
+
+#load("~/seir_regression/before.plot.we",verbose=F)
+
+#load("before.plot.6-11.test.Rda",verbose=F)
+if( !exists("smoothed_states")) {
+  load(file=paste0("RDA/after.analysis.",run.name,".Rda"),verbose=F)
+}
+
+#image.width="800px"
+rerun_viz=T
+
+icu.sheet = excel_sheets(icu.file) %>% grep(pattern = "ICU")
+ICU=read_excel( icu.file,sheet=icu.sheet,skip=1)
+ICU$date=daS( 3.12, len=dim(ICU)[1])
+
+
+```
+
+
+
+## Estimates {#nextsteps .emphasized}
+
+```{r echo=F, warning=F, error=F}
+getCI =   function(states, alpha=0.1) {
+  states_mean = apply(states, 1, mean,na.rm=T)
+  states_sd = apply(states, 1, sd,na.rm=T)
+  states_lo = apply(states, 1, function(x){quantile(x,alpha/2,na.rm=T)})
+  states_hi = apply(states, 1, function(x){quantile(x,1-alpha/2,na.rm=T)})
+  states_med = apply(states, 1, function(x){quantile(x,0.5,na.rm=T)})
+  data.frame(mean=states_mean, sd=states_sd, lo=states_lo, hi=states_hi,med=states_med)
+}
+
+
+geom_CI = function(x,alpha=0.05) {
+  n = dim(x)[1]
+  apply( log(x),2,mean) %>% sd ->s1
+  s1=s1 # *sqrt( n ) # convert to sd of single day
+  apply( log(x),2,mean) %>% mean -> m1
+  res=list(mean=exp(m1),lo = exp( m1 + qnorm(  alpha/2) * s1 ), hi = exp( m1 + qnorm(1-alpha/2)* s1 ))
+  res
+}
+
+
+alpha=0.05
+
+betaCI = getCI( smoothed_states['Beta', ,], alpha=alpha)
+r0CI   = getCI( smoothed_states['R0', ,], alpha=alpha)
+rtCI   = getCI( smoothed_states['Rt', ,], alpha=alpha)
+
+if( min(covars$date) < ymd("2020-03-01")) {
+  "2020-03-01" %>% ymd %T>% {early.r0.start <<-.} %>% { which( new_covars$date == . )} -> early.r0.start.i
+  "2020-03-10" %>% ymd %T>% {early.r0.end   <<-.} %>% { which( new_covars$date == . )} -> early.r0.end.i
+
+  r0_early = smoothed_states['R0',early.r0.start.i:early.r0.end.i,] %>% 
+        { c( mean=mean(.) , sd=sd(.) , lo = quantile( . , alpha/2,names=F), hi = quantile( . , 1-alpha/2,names=F) ) } %>% as.list
+  beta_early.p = smoothed_states['Beta', early.r0.start.i:early.r0.end.i,] %>% 
+       { c( mean=mean(.) , sd=sd(.) , lo = quantile( . , alpha/2,names=F), hi = quantile( . , 1-alpha/2,names=F) ) * 100} %>% as.list
+  beta_early.p = lapply( geom_CI( smoothed_states['Beta', early.r0.start.i:early.r0.end.i ,] ,alpha=alpha), function(x) {x*100})
+r0_early = geom_CI( smoothed_states["R0", early.r0.start.i:early.r0.end.i,], alpha=alpha )
+
+}
+ 
+cur.H.date = max( hospitalization_data$date)
+cur.i      = which(new_covars$date == cur.H.date)
+
+#r0_now = r0[ (cur.i-7):cur.i,] %>% 
+#       { c( mean=mean(.) , sd=sd(.) , lo = quantile( . , alpha/2,names=F), hi = quantile( . , 1-alpha/2,names=F) ) } %>% as.list
+r0_now = smoothed_states["R0", cur.i+2,] %>% 
+       { c( mean=mean(.) , sd=sd(.) , lo = quantile( . , alpha/2,names=F), hi = quantile( . , 1-alpha/2,names=F), med=quantile( . , 0.5,names=F) ) } %>% as.list
+rt_now = smoothed_states["Rt", cur.i+2,] %>% 
+       { c( mean=mean(.) , sd=sd(.) , lo = quantile( . , alpha/2,names=F), hi = quantile( . , 1-alpha/2,names=F), med=quantile( . , 0.5,names=F) ) } %>% as.list
+beta_now.p = smoothed_states['Beta', (cur.i-7):cur.i,] %>% 
+       { c( mean=mean(.) , sd=sd(.) , lo = quantile( . , alpha/2,names=F), hi = quantile( . , 1-alpha/2,names=F), med=quantile( . , 0.5,names=F) ) * 100} %>% as.list
+ 
+
+r0.est = r0CI[cur.i,]
+b.est.p  = betaCI[cur.i,] * 100 
+
+
+geom_CI = function(x,alpha=0.05) {
+  n = dim(x)[1]
+  apply( log(x),2,mean) %>% sd ->s1
+  s1=s1 # *sqrt( n ) # convert to sd of single day
+  apply( log(x),2,mean) %>% mean -> m1
+  res=list(mean=exp(m1),lo = exp( m1 + qnorm(  alpha/2) * s1 ), hi = exp( m1 + qnorm(1-alpha/2)* s1 ))
+  res
+}
+
+
+
+days.av = 7
+beta_now.p = lapply( geom_CI( smoothed_states['Beta', (1:days.av)-days.av+cur.i ,] ,alpha=alpha) , function(x){x * 100})
+#r0_now     = geom_CI( r0[ (1:days.av)-days.av+cur.i,] , alpha=alpha )
+
+
+H_to_reach=1500
+# a is just array of total_H, by time and rep
+smoothed_states["total_H",,] ->a
+# for each rep, find first index that H_to_reach is reached
+# or NA if it is not
+apply(a,2,function(x) {
+  i = which( x >= H_to_reach)
+  ifelse( length(i)==0, 
+    NA ,
+    as.character(new_covars$date)[min(i)])
+} ) %>% ymd %>% sort(na.last=T) ->x
+y=as.integer(x-min(x,na.rm=T))
+q = c(alpha/2,0.5,1-alpha/2)
+p=mean( is.na(y))
+q1=q/(1-p) # NAs are counted as 
+q1[q1>1]=1
+H.reach.date.CI =  min(x,na.rm=T)+quantile(y,q1,na.rm = T)
+H.reach.date.CI[ q/(1-p)>1 ]=NA
+
+# Calc ICU reach date
+
+ICU_to_reach=200
+ICU.test.date=cur.H.date+14
+ICU.test.date.i= which( new_covars$date==ICU.test.date)
+
+# a is just array of total_H, by time and rep
+smoothed_states["total_ICU",,] ->a
+# for each rep, find first index that H_to_reach is reached
+# or NA if it is not
+apply(a,2,function(x) {
+  i = which( x >= ICU_to_reach)
+  i=i[i>cur.i-7]
+  ifelse( length(i)==0, 
+    NA ,
+    as.character(new_covars$date)[min(i)])
+} ) %>% ymd %>% sort(na.last=T) ->x
+y=as.integer(x-min(x,na.rm=T))
+q = c(alpha/2,0.5,1-alpha/2)
+p=mean( is.na(y))
+q1=q/(1-p) # NAs are counted as 
+q1[q1>1]=1
+ICU.reach.date.CI =  min(x,na.rm=T)+quantile(y,q1,na.rm = T)
+ICU.reach.date.CI[ q/(1-p)>1 ]=NA
+
+ICU.date.fraction = mean( smoothed_states["total_ICU", ICU.test.date.i,] > ICU_to_reach )
+H.date.fraction   = mean( smoothed_states["total_H"  , ICU.test.date.i,] >   H_to_reach )
+
+
+
+#There is a XX% chance that the COVID-19 ICU census will reach the estimated capacity 200 by January 7, with a median date of hitting 200 of XXX (95% prediction interval: XXX-XXX).
+
+Inf_to_reach=1/1000
+smoothed_states[infectious,,] %>% {apply(.,2:3,sum) / sum(pop) } ->a
+ii = -(1:dim(covars)[1])
+apply(a,2,function(x) {
+  i = which( x[ii] <= Inf_to_reach)+dim(covars)[1]
+  i = i[i>dim(covars)[1]]
+  ifelse( length(i)==0, 
+    NA ,
+    as.character(new_covars$date)[min(i)])
+} ) %>% ymd %>% sort(na.last=T) ->x
+y=as.integer(x-min(x,na.rm=T))
+q = c(alpha/2,0.5,1-alpha/2)
+p=mean( is.na(y))
+q1=q/(1-p) # NAs are counted as 
+q1[q1>1]=1
+Inf.reach.date.CI =  min(x,na.rm=T)+quantile(y,q1,na.rm = T)
+Inf.reach.date.CI[ q/(1-p)>1 ]=NA
+
+```
+
+```{r}
+#<!--
+### Mean at beginning of March ( `r paste0( "Mar ",day( early.r0.start),"-",day( early.r0.end) ) `)
+
+#\tiny
+#
+#|               | Estimate       | `r (1-alpha)*100`% Confidence interval |
+#|:--------------|:--------------:|:-----------------------:|
+#| R0            | `r r0_early$mean      %>% sprintf(fmt="%3.2g")` |   `r sprintf("%3.2g - %#3.2g",    r0_early$lo,  r0_early$hi )`           |
+#| Beta          | `r beta_early.p$mean  %>% sprintf(fmt="%3.2g")` |   `r sprintf("%3.2g - %#3.2g %%", beta_early.p$lo, beta_early.p$hi)`         |
+#-->
+
+```
+
+
+
+\normalsize
+
+### Mean over current week (`r paste0(format( cur.H.date-7,"%b, %d")," - ",format( cur.H.date,"%b, %d")) `)
+
+\tiny 
+
+|               | Estimate                                 | `r (1-alpha)*100`% Confidence interval                                   |
+|:--------------|:----------------------------------------:|:---------------------------------------------------------:|
+| R0            | `r r0_now$med  %>% sprintf(fmt="%4.3g")` |  `r sprintf("%4.3g - %#4.3g",    r0_now$lo,  r0_now$hi)` |
+| Rt            | `r rt_now$med  %>% sprintf(fmt="%4.3g")` |  `r sprintf("%4.3g - %#4.3g",    rt_now$lo,  rt_now$hi)` |
+| Date H to cross `r H_to_reach` | `r format( H.reach.date.CI[2],"%b, %d")` | `r paste0(format( H.reach.date.CI[1],"%b, %d")," - ",format( H.reach.date.CI[3],"%b, %d")) ` |
+| Date ICU to cross `r ICU_to_reach` | `r format( ICU.reach.date.CI[2],"%b, %d")` | `r paste0(format( ICU.reach.date.CI[1],"%b, %d")," - ",format( ICU.reach.date.CI[3],"%b, %d")) ` |
+| Cross `r H_to_reach` by `r format(ICU.test.date,"%b %d")`| `r sprintf("%3.2g%%",H.date.fraction*100)` | |
+| Cross `r ICU_to_reach` by `r format(ICU.test.date,"%b %d")`| `r sprintf("%3.2g%%",ICU.date.fraction*100)` | |
+
+<!-- | Beta          | `r beta_now.p$med %>% sprintf(fmt="%4.3g")` |  `r sprintf("%4.3g - %#4.3g %%", beta_now.p$lo, beta_now.p$hi)` | -->
+<!-- | Date to cross `r Inf_to_reach` | `r format( Inf.reach.date.CI[2],"%b, %d")` | `r paste0(format( Inf.reach.date.CI[1],"%b, %d")," - ",format( Inf.reach.date.CI[3],"%b, %d")) ` | -->
+
+\normalsize
+
+## Chance to reach capacity in the next month
+
+### Chance to reach Hospital capacity
+
+```{r, echo=F,message=FALSE, warning=FALSE, include=FALSE}
+i = which(new_covars$date == cur.H.date)
+i = i + (-7:30)
+
+
+
+
+mean_H_reach   = apply( smoothed_states[ "total_H",   i,]  , 2, cummax) %>% { apply(.> H_to_reach,   1,mean) }
+mean_ICU_reach = apply( smoothed_states[ "total_ICU", i,]  , 2, cummax) %>% { apply(.> ICU_to_reach, 1,mean) }
+
+df.Chance.Capacity = rbind( 
+  data.frame( date=new_covars$date[i], chance=mean_ICU_reach*100, Threshold=paste0("ICU >",ICU_to_reach)),
+  data.frame( date=new_covars$date[i], chance=mean_H_reach*100, Threshold=paste0("Hospital >",H_to_reach))
+)
+
+gMeanCap = ggplot( df.Chance.Capacity, aes(x=date, y=chance, group=Threshold,color=Threshold)) +
+  geom_line() + 
+  scale_color_brewer(palette="Set1") +
+  coord_cartesian(ylim=c(0,100) ) + ylab("Chance to reach capacity") +
+  theme_minimal_grid(12) +
+  theme(axis.title.x=element_blank()) 
+
+
+```
+
+```{r, fig.dim=c(12,8), message=FALSE, warning=FALSE}
+gMeanCap
+```
+
+```{r, echo=F,message=FALSE, warning=FALSE, include=FALSE}
+names( betaCI ) = paste("Beta",sep="_",c("mean","sd","lo","hi","med"))
+names( r0CI )   = paste("r0",sep="_",c("mean","sd","lo","hi","med"))
+names( rtCI )   = paste("rt",sep="_",c("mean","sd","lo","hi","med"))
+
+
+
+
+
+H_range=data.frame(t(apply(smoothed_states['total_H',,],1,range)))
+colnames(H_range)=c("H_min","H_max")
+
+myroll=function(x) {
+  x[is.na(x)]=0
+  y=cumsum(x)
+  c(rep(NA,6),(tail(y,-7)-head(y,-7))/7)
+}
+frollgmean=function(x,n=7,...) exp( frollmean(log(x),n=7,...))
+
+plotmat = data.frame(betaCI,
+                     rtCI,
+                     newHCI, recoveringHCI,
+                     dyingHCI, ZCI, HCI,
+                     b1CI, b2CI,   # DML
+                     newHCIlist[[1]], newHCIlist[[2]], newHCIlist[[3]], newHCIlist[[4]], newHCIlist[[5]],
+                     dyingHCIlist[[1]], dyingHCIlist[[2]], dyingHCIlist[[3]], dyingHCIlist[[4]], dyingHCIlist[[5]],
+                     recovHCIlist[[1]], recovHCIlist[[2]], recovHCIlist[[3]], recovHCIlist[[4]], recovHCIlist[[5]],
+                     muCI, muRCI, 
+                     SCI, RCI, ECI, IACI, IYCI, PACI, PYCI,
+                     NIYCI, infCI, H_range,
+                     date7 = frollmean(new_covars$date-max_dat_date,n=7)+max_dat_date
+#                     sm1=smoothed_states["total_new_H",,1],sm2=smoothed_states["total_new_H",,20],sm3=smoothed_states["total_new_H",,30],
+#                     sm4=smoothed_states["total_new_H",,40]
+) %>%
+  mutate(day=0:(n() - 1)) %>% 
+  left_join(hospitalization_data, by="day") %>% 
+  mutate(day=0:(n() - 1)) %>% 
+  mutate(date=seq.Date(min(new_covars$date), max(new_covars$date), by=1)) %>% 
+  mutate(maxT = .env$maxT) %>% 
+  mutate(observed = as.integer(day < .env$maxT)) %>%
+  filter( date < cur.H.date + 120 )
+
+max_date = max_dat_date
+range(plotmat$date)->xl
+
+forecast_color="orange"
+
+gbeta = ggplot(plotmat) +
+  geom_line(aes(x=date, y=Beta_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=Beta_lo, ymax=pmin(Beta_hi, 1), fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="Beta", title="Beta (Daily Transmission Prob)") +
+   coord_cartesian(ylim=c(0,0.03)) + 
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gmu = ggplot(plotmat) +
+  geom_line(aes(x=date, y=mu_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=mu_lo, ymax=mu_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="mu", title="Hospitalization Time (Deaths)") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gmuR = ggplot(plotmat) +
+  geom_line(aes(x=date, y=muR_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=muR_lo, ymax=muR_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="mu", title="Hospitalization Time (Recoveries)") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+ 
+grt = ggplot(plotmat) +
+  geom_line(aes(x=date, y=rt_med, linetype=factor(1 - observed)), color='black') +
+  geom_ribbon(aes(x=date, ymin=rt_lo, ymax=rt_hi, fill=factor(1 - observed)), alpha=0.35)  +
+  labs(title="Rt (Total)") +
+  geom_hline(yintercept=1, size=1, alpha=0.5) +
+  coord_cartesian(ylim=c(0,2)) + 
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+agegroup_names = c("<5", "5-17", "18-49", "50-64", "65+")
+grlist = list()
+gadmlist = list()
+grecovlist = list()
+gdyinglist = list()
+for (i in 1:5) {
+  # grlist[[i]] = plotmat %>% 
+  #   select(date, m=sprintf("r0%s_med", i), hi = sprintf("r0%s_hi", i), lo = sprintf("r0%s_lo", i), observed) %>% 
+  #   ggplot() +
+  #   geom_line(aes(x=date, y=m, linetype=factor(1-observed)), color='black') + 
+  #   geom_ribbon(aes(x=date, ymin=lo, ymax=hi, fill=factor(1-observed)), alpha=0.35) + 
+  #   labs(title=sprintf("R0 (%s)", agegroup_names[i])) + 
+  #   geom_hline(yintercept=1, size=1, alpha=0.5) +
+  #   theme_minimal_grid() +
+  #   scale_fill_manual(values=c("darkgray", forecast_color)) +
+  #   guides(linetype=FALSE, fill=FALSE) +
+  #   theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+  
+  gadmlist[[i]] = plotmat %>% 
+    select(date, m =sprintf("new_H%s_med", i), hi = sprintf("new_H%s_hi", i),
+           lo = sprintf("new_H%s_lo", i), observed) %>% 
+    ggplot() +
+    geom_line(aes(x=date, y=m, linetype=factor(1-observed)), color='black') + 
+    geom_ribbon(aes(x=date, ymin=lo, ymax=hi, fill=factor(1-observed)), alpha=0.35) + 
+    theme_minimal_grid() +
+    guides(fill=FALSE, linetype=FALSE) +
+    scale_fill_manual(values=c("darkgray", forecast_color)) +
+    theme(axis.title.x=element_blank(), axis.title.y=element_blank()) +
+    labs(title=sprintf("New Admits (%s)", agegroup_names[i]))
+  
+  grecovlist[[i]] = plotmat %>% 
+    select(date, m =sprintf("recovering_H%s_med", i), hi = sprintf("recovering_H%s_hi", i),
+           lo = sprintf("recovering_H%s_lo", i), observed) %>% 
+    ggplot() +
+    geom_line(aes(x=date, y=m, linetype=factor(1-observed)), color='black') + 
+    geom_ribbon(aes(x=date, ymin=lo, ymax=hi, fill=factor(1-observed)), alpha=0.35) + 
+    theme_minimal_grid() +
+    guides(fill=FALSE, linetype=FALSE) +
+    scale_fill_manual(values=c("darkgray", forecast_color)) +
+    theme(axis.title.x=element_blank(), axis.title.y=element_blank()) +
+    labs(title=sprintf("New Non-death (%s)", agegroup_names[i]))
+  
+  gdyinglist[[i]] = plotmat %>% 
+    select(date, m =sprintf("dying_H%s_med", i), hi = sprintf("dying_H%s_hi", i),
+           lo = sprintf("dying_H%s_lo", i), observed) %>% 
+    ggplot() +
+    geom_line(aes(x=date, y=m), color='black') + 
+    geom_ribbon(aes(x=date, ymin=lo, ymax=hi, fill=factor(1-observed)), alpha=0.35) + 
+    theme_minimal_grid() +
+    guides(fill=FALSE, linetype=FALSE) +
+    scale_fill_manual(values=c("darkgray", forecast_color)) +
+    theme(axis.title.x=element_blank(), axis.title.y=element_blank()) +
+    labs(title=sprintf("New Deaths (%s)", agegroup_names[i]))
+}
+
+
+data.frame( date=new_covars$date, smoothed_states["total_new_H",,1:50] ) %>%
+    filter( date < xl[2]) %>%
+  gather( key="variable", value="value",-date) %>% cbind(w=1e-6) -> df
+
+
+gH = plotmat %>% 
+  # filter(plotmat, date<=max_dat_date) %>%
+  ggplot() +
+  geom_ribbon(aes(x=date, ymin=H_min, ymax=H_max, fill=factor(1-observed)),alpha=0.35) +
+  geom_line(data=df,aes(x=date,y=value,group=variable),color="grey",show.legend = F) +
+  coord_cartesian(ylim=c(0,5e2),xlim=xl) + xlim( xl[1],xl[2]) + 
+  geom_line(aes(x=date, y=H_med)) +
+#  geom_hline(yintercept=1, alpha=0.5) +
+  geom_point(aes(x=date,y=hospitalized),color="red") +
+  labs(y="Hospitalizations", title="Hospitalizations") +
+  theme_minimal_grid() +
+  guides(fill=FALSE, linetype=FALSE) +
+  coord_cartesian(ylim=c(0,1000),xlim=xl)+
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  scale_x_date(limits = xl,expand = c(0,0))+
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())  
+#  geom_hline(yintercept=1400, linetype="dashed", color = "red")
+#  geom_hline(yintercept=1100, linetype=2) +
+#  ylim(0, 1150)
+# 
+# x = data.frame( date=new_covars$date, smoothed_states["total_H",,] )
+# for(i in 1:100) {
+#   gH=gH + geom_line(data=x,aes(x=x[,1],y=x[,i+1]))
+# }
+per.pop=1e5
+s=per.pop/sum(pop)
+
+gnewH = ggplot(plotmat) +
+  geom_ribbon(aes(x=date, ymin=new_H_lo, ymax=new_H_hi, fill=factor(1-observed)), alpha=0.35)  + 
+    geom_line(data=df,aes(x=date,y=value,group=variable),color="grey",show.legend = F) +
+  geom_line(aes(x=date, y=new_H_med, linetype=factor(1-observed))) + 
+  geom_point(aes(x=date,y=adm_total),
+             data = filter(plotmat, date<=max_date)) + 
+  geom_line(aes(x=date,y=frollgmean(adm_total,align="center")),color="green",show.legend = F,
+             data = filter(plotmat, date<=max_date)) +   
+    coord_cartesian(ylim=c(0,2e3),xlim=xl)+
+#  geom_line(aes(x=date, y=sm1), col=2)+
+#             data = filter(plotmat, date > max_date),col=2) +
+  # geom_line(aes(x=date, y=sm2),
+  #           data = filter(plotmat, date > max_date),col=3) +
+  # geom_line(aes(x=date, y=sm3),
+  #           data = filter(plotmat, date > max_date),col=4) +
+  #geom_line(aes(x=date, y=sm4),
+  #          data = filter(plotmat, date > max_date),col=5) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  coord_cartesian(ylim=c(0,150),xlim=xl)+  
+  guides(fill=FALSE, linetype=FALSE) +
+  theme_minimal_grid() +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  labs(title="New Admits (Total)")
+
+
+i=sample(1:dim(smoothed_states)[3],100)
+data.frame( date=new_covars$date, smoothed_states["total_new_H",,i]) ->a
+apply(a[,-1],2, function(x) (frollgmean(x,n=7,na.rm=T))) %>% {data.frame(date=a[,1],.)} %>%
+  filter( date < xl[2]) ->b
+
+b %>%
+gather( key="variable", value="value",-date) %>% cbind(w=1e-6) -> df7
+
+gnewH7 = ggplot(plotmat) +
+  geom_ribbon(aes(x=date, ymin=frollmean(new_H_lo,n=7), ymax=frollmean(new_H_hi,n=7), fill=factor(1-observed)), alpha=0.35)  + 
+  geom_line(data=df7,aes(x=date,y=value,group=variable),color="grey",show.legend = F) +
+  coord_cartesian(ylim=c(0,150),xlim=xl)+
+  geom_line(aes(x=date,y=frollgmean(adm_total),show.legend = F),
+             data = filter(plotmat, date<=xl[2])) + 
+  geom_point(aes(x=date,y=frollgmean(adm_total)),color="red",show.legend = F,
+             data = filter(plotmat, date<=xl[2])) + 
+  geom_line(aes(x=date, y=frollgmean(new_H_med),linetype=factor(1-observed)),  show.legend = F) + 
+  coord_cartesian(ylim=c(0,150),xlim=xl)+ #  geom_line(aes(x=date, y=sm1), col=2)+
+#  scale_x_date(limits = xl,expand = c(0,0))+
+#             data = filter(plotmat, date > max_date),col=2) +
+  # geom_line(aes(x=date, y=sm2),
+  #           data = filter(plotmat, date > max_date),col=3) +
+  # geom_line(aes(x=date, y=sm3),
+  #           data = filter(plotmat, date > max_date),col=4) +
+  #geom_line(aes(x=date, y=sm4),
+  #          data = filter(plotmat, date > max_date),col=5) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  guides(fill=FALSE, linetype=FALSE) +
+  theme_minimal_grid() +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  labs(title="New Admits (Total)")
+
+# gleavingH = ggplot(plotmat) +
+#   geom_line(aes(x=date, y=leavingH_med), color='blue') +
+#   geom_ribbon(aes(x=date, ymin=leavingH_lo, ymax=leavingH_hi), fill='orange', alpha=0.2)  +
+#   geom_hline(yintercept=1, size=1, alpha=0.5) +
+#   geom_point(aes(x=date,y=discharges)) +
+#   labs(y="Discharges", title="New Discharges (Total)")
+
+grecovH = ggplot(plotmat) +
+  geom_line(aes(x=date, y=recoveringH_med, linetype=factor(1-observed))) +
+  geom_ribbon(aes(x=date, ymin=recoveringH_lo, ymax=recoveringH_hi, fill=factor(1-observed)), alpha=0.35)  +
+  geom_point(aes(x=date,y=recov_total),
+             data = filter(plotmat, date<=max_date)) +
+  coord_cartesian(ylim=c(0,1e2),xlim=xl)+
+  guides(fill=FALSE, linetype=FALSE) +
+  theme_minimal_grid() +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  labs(title="New Non-death Discharges (Total)")
+
+gdyingH = ggplot(plotmat) +
+  geom_line(aes(x=date, y=dying_H_med, linetype=factor(1-observed))) +
+  geom_ribbon(aes(x=date, ymin=dying_H_lo, ymax=dying_H_hi, fill=factor(1-observed)), alpha=0.35)  +
+  geom_point(aes(x=date,y=deaths_total),
+             data = filter(plotmat, date<=max_date)) +
+    coord_cartesian(ylim=c(0,50),xlim=xl)+
+  guides(fill=FALSE, linetype=FALSE) +
+  theme_minimal_grid() +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  labs(title="New Deaths (Total)")
+
+gZ = ggplot(plotmat) +
+  geom_line(aes(x=date, y=Z_med)) + 
+  geom_ribbon(aes(x=date, ymin=Z_lo, ymax=Z_hi, fill=factor(1-observed)), alpha=0.35) +
+  labs(y="Z_t", title="Beta AR(1) error term") +
+  theme_minimal_grid() +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  guides(fill=FALSE, linetype=FALSE) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+# DML
+gb1 = ggplot(plotmat) +
+  geom_line(aes(x=date, y=b1_med)) + 
+  geom_ribbon(aes(x=date, ymin=b1_lo, ymax=b1_hi, fill=factor(1-observed)), alpha=0.35) +
+  labs(y="b1_t", title="b1 DML") +
+  theme_minimal_grid() +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  guides(fill=FALSE, linetype=FALSE) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+#DML
+gb2 = ggplot(plotmat) +
+  geom_line(aes(x=date, y=b2_med)) + 
+  geom_ribbon(aes(x=date, ymin=b2_lo, ymax=b2_hi, fill=factor(1-observed)), alpha=0.35) +
+  labs(y="b2_t", title="b2 DML") +
+  theme_minimal_grid() +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  guides(fill=FALSE, linetype=FALSE) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+
+gS = ggplot(plotmat) +
+  geom_line(aes(x=date, y=S_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=S_lo, ymax=S_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="S (Total)", title="S") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gE = ggplot(plotmat) +
+  geom_line(aes(x=date, y=E_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=E_lo, ymax=E_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="E (Total)", title="E") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gR = ggplot(plotmat) +
+  geom_line(aes(x=date, y=R_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=R_lo, ymax=R_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="R (Total)", title="R") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gIA = ggplot(plotmat) +
+  geom_line(aes(x=date, y=IA_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=IA_lo, ymax=IA_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="IA (Total)", title="IA") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gIY = ggplot(plotmat) +
+  geom_line(aes(x=date, y=IY_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=IY_lo, ymax=IY_hi, fill=factor(1 - observed)), alpha=0.35) + 
+    coord_cartesian(ylim=c(0,1e4)) + 
+  labs(y="IY (Total)", title="IY") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gPA = ggplot(plotmat) +
+  geom_line(aes(x=date, y=PA_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=PA_lo, ymax=PA_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="PA (Total)", title="PA") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gPY = ggplot(plotmat) +
+  geom_line(aes(x=date, y=PY_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=PY_lo, ymax=PY_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="PY (Total)", title="PY") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+
+gS = ggplot(plotmat) +
+  geom_line(aes(x=date, y=S_med, linetype=factor(1 - observed))) + 
+  geom_ribbon(aes(x=date, ymin=S_lo, ymax=S_hi, fill=factor(1 - observed)), alpha=0.35) + 
+  labs(y="S (Total)", title="S") +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gH_ = plotmat %>% 
+  # filter(plotmat, date<=max_dat_date) %>% 
+  ggplot() +
+  geom_line(aes(x=date, y=H_med, linetype=factor(1-observed))) +
+  geom_ribbon(aes(x=date, ymin=H_lo, ymax=H_hi, fill=factor(1-observed)),alpha=0.35) +
+  labs(y="H (Total)", title="H") +
+  theme_minimal_grid() +
+  guides(fill=FALSE, linetype=FALSE) +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+
+gD_ = ggplot(plotmat) +
+  geom_line(aes(x=date, y=dying_H_med, linetype=factor(1-observed))) +
+  geom_ribbon(aes(x=date, ymin=dying_H_lo, ymax=dying_H_hi, fill=factor(1-observed)), alpha=0.35)  +
+  guides(fill=FALSE, linetype=FALSE) +
+  theme_minimal_grid() +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  labs(title="D (Total)")
+
+data.frame( date=new_covars$date, smoothed_states["total_H",,] ) %>%
+  gather( key="variable", value="value",-date) %>% cbind(w=1e-6) -> df
+
+
+
+pol=function(x=c(),y1,y2=c(),min.y=0,...) {
+  if(length(x)==0) { x=seq_along(y1) }
+  if( length(y2)==0) {
+    polygon( c(head(x,1), x, tail(x,1), head(x,1) ), c(min.y, y1, min.y, min.y), ...   )
+  } else {
+    polygon( c(head(x,1), x, rev(x) ), c(min.y, y1, rev(y2)), ...   )
+  }
+}
+
+
+
+# plot(hospitalization_data$date,hospitalization_data$hospitalized,xlim=xl,ylim=c(0,2000),type="n",
+#      title="Austin hospitalizations",xlab="Date",ylab="Hospitalizations")
+# pol(plotmat$date,plotmat$H_lo,plotmat$H_hi,col="bisque",lty=0)
+# lines(plotmat$date,plotmat$H_med)
+# for(i in 1:25)
+#  lines(x[,1],x[,i+1],lwd=0.1) 
+
+gH = plotmat %>% 
+  # filter(plotmat, date<=max_dat_date) %>%
+  ggplot() +
+  geom_ribbon(aes(x=date, ymin=H_min, ymax=H_max, fill=factor(1-observed)),alpha=0.35) +
+  geom_line(data=df,aes(x=date,y=value,group=variable),color="grey",show.legend = F) +
+  coord_cartesian(ylim=c(0,5e2),xlim=xl) + xlim( xl[1],xl[2]) + 
+  geom_line(aes(x=date, y=H_med)) +
+#  geom_hline(yintercept=1, alpha=0.5) +
+  geom_point(aes(x=date,y=hospitalized),color="red",show.legend=F) +
+  labs(y="Hospitalizations", title="Hospitalizations") +
+  theme_minimal_grid() +
+  guides(fill=FALSE, linetype=FALSE) +
+  coord_cartesian(ylim=c(0,2000),xlim=xl)+
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  scale_x_date(limits = xl,expand = c(0,0))+
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())  
+
+
+
+
+ICU.f = (ICU %>% pull( "CV19 ICU Inpatients") %>% .[ICU$date==cur.H.date]) / ( hospitalization_data %>% pull("hospitalized") %>% .[hospitalization_data$date==cur.H.date] )
+
+
+gICU = plotmat %>% 
+  ggplot() +
+  geom_ribbon(aes(x=date, ymin=H_min*ICU.f, ymax=H_max*ICU.f, fill=factor(1-observed)),alpha=0.35) +
+  geom_line(data=df,aes(x=date,y=value*ICU.f,group=variable),color="grey",show.legend = F) +
+  coord_cartesian(ylim=c(0,5e2),xlim=xl) + xlim( xl[1],xl[2]) + 
+  geom_line(aes(x=date, y=H_med*ICU.f)) +
+  geom_point(data=ICU,aes(x=date,y=`CV19 ICU Inpatients`),color="red",show.legend=F) +
+#  geom_hline(yintercept=1, alpha=0.5) +
+#  geom_point(aes(x=date,y=hospitalized,color="red")) +
+  labs(y="ICU", title=paste0("ICU, ", round(ICU.f*100),"% of Hospitalizations") ) +
+  theme_minimal_grid() +
+  guides(fill=FALSE, linetype=FALSE) +
+  coord_cartesian(ylim=c(0,700),xlim=xl)+
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  scale_x_date(limits = xl,expand = c(0,0))+
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())  
+
+
+gINF = plotmat %>% 
+#  filter( date<=max_dat_date) %>%
+  ggplot() +
+  geom_ribbon(aes(x=date, ymin=inf_lo*s, ymax=inf_hi*s, fill=factor(1-observed)),alpha=0.35,show.legend = F) +
+  geom_line(aes(x=date, y=inf_med*s),show.legend = F) +
+#  coord_cartesian(xlim=c(xl[1],max_dat_date))+
+#  scale_x_date(limits = c(xl[1],max_dat_date),expand = c(0,0)) +
+  labs(y="Infectious population", title=paste0("Infectious pop, cases per ",format(digits=6, per.pop,scientific = F,small.mark = ",",small.interval = 3,big.mark=",")) ) +
+  theme_minimal_grid() +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())  
+
+
+```
+
+## Data fit
+
+```{r, fig.dim=c(12,8), message=FALSE, warning=FALSE}
+#grid.newpage()
+grid.arrange(
+             grt,
+             gdyingH, gICU, gnewH,
+             gH,gINF,
+#             gZ,
+#             gmu, gmuR,
+             ncol=3
+             )
+  
+
+
+
+```
+
+
+```{r}
+b1= smoothed_states["Beta", new_covars$date %in% daS( 6.10,       len=7        ), ] %>% log %>% colMeans %>% exp %>% mean
+b2=smoothed_states["Beta", new_covars$date  %in% daS( cur.H.date, len=7, by=-1 ), ] %>% log %>% colMeans %>% exp %>% mean
+
+r1= smoothed_states["R0",new_covars$date %in% daS( 6.10,       len=7        ), ] %>% log %>% colMeans %>% exp %>% mean
+r2= smoothed_states["R0", new_covars$date  %in% daS( cur.H.date, len=7, by=-1 ), ] %>% log %>% colMeans %>% exp %>% mean
+
+```
+
+## Beta difference
+
+Difference in Beta between the week of `r da(6.10)` to `r da(6.10)+6`  and  `r cur.H.date-6` to `r cur.H.date` is
+`r round((b1-b2)/b1*100)`%
+
+
+```{r}
+slopes = function(A, days=14) {
+  n = dim(A)[1]
+  res = sapply(1:(n-days), function(i) {
+    x=i:(i+days)
+    
+    apply(A[x,],2,function(y) lsfit(x,y)$coef["X"])
+  })
+  t(res)
+}
+
+
+
+a = log(smoothed_states["NI",,] %>% {apply(.,2,function(x) {res=c(0,diff(x));res[res<0]=0;res})}+1e-6)
+x = log(2) / slopes(a)
+
+NId.2rate.CI = data.frame( date=tail(new_covars$date, -14), getCI(x, alpha=alpha) ) %>%
+  mutate(observed = as.integer(date <= cur.H.date) )
+
+
+i = NId.2rate.CI %>% {.$date %in% daS( cur.H.date, len=30, by=-1) &  .$lo>0  &  .$hi > 0}
+
+gNId2rate = ggplot(NId.2rate.CI[i,] ) +
+  geom_line(aes(x=date, y=med), color="black",show.legend = F ) +
+  geom_ribbon(aes(x=date, ymin=lo, ymax=hi, fill=factor(1 - observed), alpha=0.35),show.legend=F )  +
+  coord_cartesian(ylim=c(0,30))+  
+  labs(title="Doubling time new infections") +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  theme( axis.title.x=element_blank(), axis.title.y=element_blank())
+
+
+a = log(smoothed_states["total_new_H",,]+1e-6)
+x = log(2) / slopes(a)
+H.2rate.CI = data.frame( date=tail(new_covars$date, -14), getCI(x, alpha=alpha ) ) %>%
+  mutate(observed = as.integer(date <= cur.H.date) )
+
+i = H.2rate.CI %>% {.$date %in% daS( cur.H.date, len=30, by=-1) &  .$lo>0  &  .$hi > 0}
+
+gH2rate = ggplot( H.2rate.CI[i,] ) +
+  geom_line(aes(x=date, y=med), color="black",show.legend = F ) +
+#  geom_line(aes(x=date, y=lo), color="black",show.legend = F ) +
+#  geom_line(aes(x=date, y=hi), color="black",show.legend = F ) +
+  geom_ribbon(aes(x=date, ymin=lo, ymax=hi, fill=factor(1 - observed), alpha=0.35),show.legend=F )  +
+#  scale_y_reverse() +
+  coord_cartesian(ylim=c(0,30)) +
+  labs(title="Doubling time hospitalizations") +
+  scale_fill_manual(values=c("darkgray", forecast_color)) +
+  theme_minimal_grid() +
+  guides(linetype=FALSE, fill=FALSE) +
+  theme( axis.title.x=element_blank(), axis.title.y=element_blank())
+
+```
+
+## Doubling time
+
+```{r, fig.dim=c(12,8), message=FALSE, warning=FALSE}
+#grid.newpage()
+#grid.arrange(
+#gNId2rate, gH2rate,
+#             ncol=2
+#            )
+  
+
+
+
+```  
+
+
+## New Hospitalizations
+
+```{r echo=F, message=F, warning=F}
+gnewH7
+```
+
+## Hospitalizations
+
+```{r echo=F, message=F, warning=F}
+gH
+```
+
+## ICU
+
+```{r echo=F, message=F, warning=F}
+gICU
+```
+
+## Population estimation
+
+```{r}
+grid.newpage()
+grid.arrange(gS, gE, gINF, gIA, gIY, gH_, gR, gD_,
+             top = textGrob(label="S, E, PA, PY, IA, IY, H, R, D, Evolution", gp=gpar(fontsize=15,font=8)))
+
+```
+
+## Infectious pop
+```{r echo=F, message=F, warning=F}
+preval=smoothed_states[infectious,cur.i,] %>% apply(.,2,sum) %>%  quantile(.,c(0.025,0.5,0.975))/sum(pop)*per.pop
+
+new.infections = smoothed_states[expand_state("new_E",c(2,5)),cur.i,] %>% apply(.,2,sum) %>%  quantile(.,c(0.025,0.5,0.975))/sum(pop)*per.pop
+```
+Current prevalence per `r format(digits=6, per.pop,scientific = F,small.mark = ",",small.interval = 3,big.mark=",")`: `r sprintf("%3.0f [%3.0f - %#3.0f]",preval[2],preval[1],preval[3])`
+New infections per `r format(digits=6, per.pop,scientific = F,small.mark = ",",small.interval = 3,big.mark=",")`: `r sprintf("%3.0f [%3.0f - %#3.0f]",new.infections[2],new.infections[1],new.infections[3])`
+
+
+```{r echo=F, message=F, warning=F}
+gINF
+```
+
+
+## Comparison of predicted symptomatic with positive cases
+
+
+```{r, fig.dim=c(12,8)}
+
+
+lag_I=2
+
+minT=min(covars$day)
+cumulative_cases_week = numeric(maxT -minT- lag_I)
+cases_week = numeric(maxT -minT- lag_I)
+NIY_week_lag = numeric(maxT -minT- lag_I)
+diffs_new_IY_week_lag = c(0, diff(NIYCI$NIY_med))
+new_IY_week_lag = numeric(maxT -minT- lag_I)
+for (i in (9):(maxT-minT - lag_I)) {
+  cumulative_cases_week[i] = covars$cumulative_cases[i]
+  cases_week[i] = sum(covars$cases[(i - 7 + 1):i])
+  NIY_week_lag[i] = NIYCI$NIY_med[i - lag_I]
+  new_IY_week_lag[i] = sum(diffs_new_IY_week_lag[(i - 9 + 1):(i - lag_I)])
+}
+
+
+plotmat = tibble(
+  day=minT:(maxT - lag_I-1),
+  cases_week=cases_week,
+  cumulative_cases_week=cumulative_cases_week,
+  NIY_week_lag=NIY_week_lag,
+  new_IY_week_lag=new_IY_week_lag
+) %>%
+  left_join(select(covars, day, date), by="day") %>% 
+  filter(NIY_week_lag > 0, cumulative_cases_week > 0) %>% 
+  mutate(detection_ratio_cum = cumulative_cases_week / NIY_week_lag * 100) %>% 
+  mutate(detection_ratio_week = cases_week / new_IY_week_lag * 100)
+
+
+g1 = ggplot(plotmat) +
+  geom_line(aes(x=date, y=detection_ratio_week)) +
+  labs(y="", x="", title="Detection Probability (weekly cases / IY)") +
+  theme_minimal_grid()
+g2 = plotmat %>% 
+  select(date, cases_week, new_IY_week_lag) %>% 
+  rename(cases_week = cases_week, IY_week=new_IY_week_lag) %>% 
+  gather(variable, value, -date) %>%
+  ggplot() +
+  geom_line(aes(x=date, y=value, linetype=variable)) +
+  labs(y="", x="", title="Weekly Cases vs Model's Symptomatic (IY)", linetype="",
+       caption=paste0("Observations are added for a moving window of one week.  The values for IY are lagged ",lag_I," days.") )+
+  theme_minimal_grid() +
+  theme(legend.position = "top")
+
+grid.arrange(g2, g1, ncol=2)
+```
+
+
+## Comparison of predicted total infected with positive cases
+
+
+```{r, fig.dim=c(12,8)}
+
+NICI = getCI(smoothed_states['NI',,], alpha=0.1)
+names(NICI) =paste("NI",sep="_",c("mean","sd","lo","hi","med"))
+
+
+
+lag_I=lag_I
+
+minT=min(covars$day)
+cumulative_cases_week = numeric(maxT -minT- lag_I)
+cases_week = numeric(maxT -minT- lag_I)
+NI_week_lag = numeric(maxT -minT- lag_I)
+diffs_new_I_week_lag = c(0, diff(NICI$NI_med))
+new_I_week_lag = numeric(maxT -minT- lag_I)
+for (i in (9):(maxT-minT - lag_I)) {
+  cumulative_cases_week[i] = covars$cumulative_cases[i]
+  cases_week[i] = sum(covars$cases[(i - 7 + 1):i])
+  NI_week_lag[i] = NICI$NI_med[i - lag_I]
+  new_I_week_lag[i] = sum(diffs_new_I_week_lag[(i - 9 + 1):(i - lag_I)])
+}
+
+plotmat2 = tibble(
+  day=minT:(maxT - lag_I-1),
+  cases_week=cases_week,
+  cumulative_cases_week=cumulative_cases_week,
+  NI_week_lag=NI_week_lag,
+  new_I_week_lag=new_I_week_lag
+) %>%
+  left_join(select(covars, day, date), by="day") %>% 
+  filter(NI_week_lag > 0, cumulative_cases_week > 0) %>% 
+  mutate(detection_ratio_cum = cumulative_cases_week / NI_week_lag * 100) %>% 
+  mutate(detection_ratio_week = cases_week / new_I_week_lag * 100)
+
+
+g1 = ggplot(plotmat2) +
+  geom_line(aes(x=date, y=detection_ratio_week)) +
+  labs(y="", x="", title="Detection Probability (weekly cases / (IY+IA))") +
+  theme_minimal_grid()
+g2 = plotmat2 %>% 
+  select(date, cases_week, new_I_week_lag) %>% 
+  rename(cases_week = cases_week, I_week=new_I_week_lag) %>% 
+  gather(variable, value, -date) %>%
+  ggplot() +
+  geom_line(aes(x=date, y=value, linetype=variable)) +
+  labs(y="", x="", title="Weekly Cases vs Model's Infected (I)", linetype="",
+       caption=paste0("Observations are added for a moving window of one week.  The values for I are lagged ",lag_I," days.") ) +
+  theme_minimal_grid() +
+  theme(legend.position = "top")
+
+grid.arrange(g2, g1, ncol=2)
+```
+
+## Cumulative detection ratio
+
+
+```{r, fig.dim=c(12,8)}
+g2 = ggplot(plotmat2) +
+  geom_line(aes(x=date, y=detection_ratio_cum)) +
+  labs(y="", x="", title="Detection Probability (cumulative cases / (IY+IA))") +
+  theme_minimal_grid()
+g1 = ggplot(plotmat) +
+  geom_line(aes(x=date, y=detection_ratio_cum)) +
+  labs(y="", x="", title="Detection Probability (cumulative cases / IY)") +
+  theme_minimal_grid()
+
+
+grid.arrange(g2, g1, ncol=2)
+```
+
+
+
+## SafeGraph Features, to `r format( covars_last_date,"%b, %d")`
+### City of Austin 
+
+```{r, fig.dim=c(17,10),echo=F, warning=F,error=F, message=F}
+
+m = mobility_data$msa_data %>%
+  filter(msa == "Austin-Round Rock-Georgetown, TX") 
+
+vars = m %>% colnames %>% grep( pattern="_av", value=T) %>% grep( pattern="PC", invert=T, value=T)
+new_vars= vars %>% gsub( pat="_av", rep="") %>% gsub( pat="_",rep=" ")
+
+g=m %>%
+  select( all_of( c("date",vars) )) %>% 
+#  bind_rows(mutate(covars_texas, location="Texas")) %>%  #uncomment to also see Texas covars
+  pivot_longer(cols=vars,names_to="name",names_pattern="(?:count_|)(.*)_av") %>% 
+  filter( !is.na(value)) %>%
+#  mutate(variable = gsub("count_relative_|_av|_relative", "", variable)) %>% 
+#  filter(!(variable %in% c("PC1", "PC2", "PC3","cases"))) %>% 
+  ggplot(aes(x=date, y=value, color=name)) +
+  geom_line(size=1) +
+#  ylim( -0.2, 2) +
+  scale_fill_brewer(palette="Set2") +
+  facet_wrap(~name) +
+  labs(linetype="") +
+  theme_minimal_grid() +
+#  labs(title="Safegraph Features", subtitle="City of Austin vs State of Texas") +
+#  theme(strip.text.x = element_text(size=8, angle=75),
+#          strip.text.y = element_text(size=12, face="bold"),
+#          strip.background = element_rect(colour="red", fill="#CCCCFF"))
+   theme(
+    strip.background = element_blank()
+#    ,strip.text.x = element_blank()
+  )
+g
+```
+
+## SafeGraph Fetures (Principal Components)
+
+```{r, fig.dim=c(12,8)}
+
+# 
+covars %>%
+  mutate(location="Austin") %>%
+#  bind_rows(mutate(covars_texas, location="Texas")) %>%
+  gather(variable, value, -day, -date, -location) %>%
+  filter((variable %in% c("PC1", "PC2", "PC3"))) %>%
+#  mutate(variable = gsub("count_relative_|_av|_relative", "", variable)) %>%
+  ggplot(aes(x=date, y=value, color=variable, linetype=location)) +
+  geom_line(size=1) +
+  scale_fill_brewer(palette="Set2") +
+  facet_wrap(~variable, scale="free_y") +
+  labs(linetype="") +
+  theme_minimal_grid() +
+  labs(title="Safegraph Features (Principal Components)", subtitle="City of Austin") +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank()
+  )
+
+```
+
+## Plot PCs used in fit
+
+```{r, fig.dim=c(12,8)}
+covars %>% ggplot() + geom_line( aes(x=date,y=PC1) ) -> gPC1
+covars %>% ggplot() + geom_line( aes(x=date,y=PC2) ) -> gPC2
+covars %>% ggplot() + geom_line( aes(x=date,y=PC3) ) -> gPC3
+grid.newpage()
+grid.arrange( gPC1, gPC2, gPC3,ncol=3)
+```
+
+## Decomposition of Beta into fitted parameters
+Reduction because of awareness: `r sprintf("%3.2g%%",(mf2%>%coef)["b5"] %>% {(1-exp(.))*100} )`
+
+```{r, fig.dim=c(12,8)}
+
+options(warn=-1)
+mc = (mf2 %>% coef)
+Beta.comp = cbind( mc["log_beta_0"],
+                   new_covars$PC1 * (         mc["b1_0"]),
+                   new_covars$PC2 * (         mc["b2_0"]),
+                   new_covars$PC1 * (b1CI[,1]-mc["b1_0"]),
+                   new_covars$PC2 * (b2CI[,1]-mc["b2_0"])
+                )
+Beta.comp = t(apply(Beta.comp,1,cumsum)) 
+colnames(Beta.comp) = c("const", "PC1*b1_0","PC2*b2_0","PC1*b1_t","PC2*b2_t")
+Beta.comp %<>% as.data.frame
+Beta.comp$date = new_covars$date
+#plot( Beta.comp[,1],type="l",ylim=c(min(Beta.comp),max(Beta.comp)))
+gB1 = Beta.comp %>%
+  gather(variable, value, -date) %>%
+  ggplot( aes(x=date,y=value)) +
+  geom_line(aes(x=date, y=value, color=variable)) +
+  labs(y="", x="", title="Composition of log(Beta)", linetype="") +
+  theme_minimal_grid() 
+
+gB2 = Beta.comp %>%
+  gather(variable, value, -date) %>%
+  mutate(value=exp(value)) %>%
+  ggplot( aes(x=date,y=value)) +
+  geom_line(aes(x=date, y=(value), color=variable)) +
+  labs(y="", x="", title="Composition of Beta", linetype="")+
+  theme_minimal_grid() 
+
+grid.arrange(gB1, gB2, ncol=2)
+```
+
+## Data fit expanded
+
+```{r, fig.dim=c(12,8)}
+grid.newpage()
+grid.arrange(gbeta,
+             gdyingH, gnewH,
+             gH,
+             gZ, gb1, gb2,
+             gmu, gmuR,
+             ncol=3)
+  
+
+
+
+```
+
+
+## Epi Model
+
+Content
+```{r}
+knitr::include_graphics('figures/SEIR_model.png', dpi=500)
+```
+
+- 5 age groups: <5, 5-17, 18-49, 50-64, 65+
+- 2 risk groups (high/low)
+
+
+## Plots to check mif2 converging
+
+```{r fig_1, fig.width = 8, fig.height = 8, fig.show = "hold", out.width = "40%"}
+layout(rbind(1:3,4:6))
+plot(mf2,max.plots.per.page	=1)
+```
+
+```{r}
+i = new_covars$date == da(7.28,y=21)
+states = smoothed_states %>% {dimnames(.)[[1]]} %>% grep(pat="^[A-Z]+_._",val=T)
+x = smoothed_states[states,i,] %>% apply(.,1, quantile, c(0.975,0.5,0.025)) %>% t
+s=strsplit(states,"_") %>% unlist %>% matrix(ncol = 3,nrow = length(states),byrow = T)
+s=data.frame(compartment=s[,1],risk=as.numeric(s[,2]),age=as.numeric(s[,3]),N=x)
+write.csv(file="median_compartment_occupancy.csv",s,row.names = F)
+```
+
