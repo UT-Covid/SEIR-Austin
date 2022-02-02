@@ -21,6 +21,7 @@ Run occurs in 3 stages:
 ## Commannd line arguments
 
 First argment can be a modifier, or missing.
+Allowed modifiers are `help`, `history`, `continue`, `short`
 
 ### Regular run: 
 `Rscript run-seir.R Admit_discharge_datafile.xlsx ICY_datafile.xlsx`
@@ -35,6 +36,13 @@ continue run after stage. Possible stages: prepare, mf2, smooth, sim, analysis.
 ### History runs for performance analysis
 `Rscript run-seir.R history Admit_discharge_datafile.xlsx [ndays]`
 Load Admit_discharge_datafile.xlsx data file, but cut to first [ndays].
+
+### Short run
+`Rscript run-seir.R short Admit_discharge_datafile.xlsx ICY_datafile.xlsx`
+Don't start run from beginning of hospitalization data, but instead load initial state from a previous run for a later date.
+That run has to be carefully prepared top have enough initial variation and started at a relatively quiet part of the epidemic.
+The start session is currently hard coded.
+Short runs were not used for the PNAS paper analysis.
 
 ### Additional arguments
 Additional aguments come in the form of keyword:argument

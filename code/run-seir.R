@@ -1,14 +1,68 @@
-print("start")
+# Main file for running Austin projections
 
+#################################
+#read command line arguments
+args = commandArgs(trailingOnly=TRUE)
+arg.list=c()
+
+if( length(args)==1 && args[1] == "help") { #@note help
+      cat("
+Run Austin SEIR projection
+## Commannd line arguments
+
+First argment can be a modifier, or missing.
+Allowed modifiers are `help`, `history`, `continue`, `short`
+
+### Regular run: 
+`Rscript run-seir.R Admit_discharge_datafile.xlsx ICY_datafile.xlsx`
+
+### Continuing previous run:
+`Rscript run-seir.R continue Rdata_session_file.Rda`
+stage of run to continue is determined by name of file before/after stage.
+
+`Rscript run-seir.R  continue Rdata_session_file.Rda after:stage`
+continue run after stage. Possible stages: prepare, mf2, smooth, sim, analysis.
+
+### History runs for performance analysis
+`Rscript run-seir.R history Admit_discharge_datafile.xlsx [ndays]`
+Load Admit_discharge_datafile.xlsx data file, but cut to first [ndays].
+
+### Short run
+`Rscript run-seir.R short Admit_discharge_datafile.xlsx ICY_datafile.xlsx`
+Don't start run from beginning of hospitalization data, but instead load initial state from a previous run for a later date.
+That run has to be carefully prepared top have enough initial variation and started at a relatively quiet part of the epidemic.
+The start session is currently hard coded.
+Short runs were not used for the PNAS paper analysis.
+
+### Additional arguments
+Additional aguments come in the form of keyword:argument
+
+`no:dash` don't produce dashboard csv files
+`no:pdf` don't produce pdf report
+`no:mob` run without mobility data
+
+`name.add:string` add string to output file name
+")
+}
 
 
 timing=list()
 timing$start=Sys.time()
+
+
 library(session)
 
 library(foreach)
 library(doParallel)
-#library(cowplot)
+
+
+library(tidyverse)
+library(readxl)
+library(pomp, quietly = T)
+library(lubridate, quietly = T)
+library(abind)
+
+# Set size of cluster depending on computer name: clust.n. This will affect the number of parallel mf2 runs done.
 
 if( grepl("frontera",system("hostname",intern=T)) ) {
   clust.n = 50
@@ -32,7 +86,7 @@ dash_dir = "/home/michael/cv19/austin-dash/data/"
 
 # @note mif parameters
 mif2.N.steps=300
-mif2.iter = 10
+mif2.iter = 10 # steps per single loop. Does not affect how many steps are taken, just monitoring.
 mif2.particles = 3500
 
 calc.r0=F
@@ -44,19 +98,12 @@ N_particles_per_draw = 2500
 hosp4csv_from_dashboard = T # take hosp for csv files from dashboard, not from admit file
 
 
-#library(grid)
-#library(gridExtra)
-#library(cowplot, quietly = T)
-library(tidyverse)
-library(readxl)
-library(pomp, quietly = T)
-library(lubridate, quietly = T)
-library(abind)
 
 # Fill in the data --------------------------------------------------------
 # Read in covariates
 
 source("code/common/sdmetrics-msas.R")
+
 source("code/common/nextgen.R")
 source("code/common/NGM_R_with_S.R")
 source("code/common/data-processing.R")
@@ -76,12 +123,10 @@ mitigation_trans_start = ymd("2020-04-20")
 mitigation_trans_end = ymd("2020-04-27")
 
 
-#################################
-#read command line arguments
-args = commandArgs(trailingOnly=TRUE)
-arg.list=c()
+
 
 # @note start args
+# Manually give commend line arguments for debugging
 if( length(args)==0) {
 #args=c("continue","RDA/before.plot.20201220.Rda","after:after.smooth","dZfile:dZ.test1.csv","name.add:dZ1")
 #args=c("continue","RDA/before.plot.20201219.Rda","after:after.smooth","name.add:dZ.flat","dZfile:dZ.test3.csv")
@@ -94,7 +139,7 @@ if( length(args)==0) {
 
 
 analysis.steps = c( "prepare", "mf2", "smooth","sim","analysis","saving")
-analysis.continue.after ="all"
+analysis.continue.after ="all" # In case we want to continue analysis from a later step
 
 do.this.step = function( analysis.continue, current.step ) {
     if( is.null( analysis.continue ) || (class(analysis.continue) != "character") ) {
@@ -123,9 +168,48 @@ do.this.step = function( analysis.continue, current.step ) {
 
 n.max.days=0
 short.run=F
+
+# Somewhat convoluted command line argument parsing
+
 if( length(args)>1) {
   if( args[1] == "help") { #@note help
-      cat("")
+      cat("
+Run Austin SEIR projection
+## Commannd line arguments
+
+First argment can be a modifier, or missing.
+Allowed modifiers are `help`, `history`, `continue`, `short`
+
+### Regular run: 
+`Rscript run-seir.R Admit_discharge_datafile.xlsx ICY_datafile.xlsx`
+
+### Continuing previous run:
+`Rscript run-seir.R continue Rdata_session_file.Rda`
+stage of run to continue is determined by name of file before/after stage.
+
+`Rscript run-seir.R  continue Rdata_session_file.Rda after:stage`
+continue run after stage. Possible stages: prepare, mf2, smooth, sim, analysis.
+
+### History runs for performance analysis
+`Rscript run-seir.R history Admit_discharge_datafile.xlsx [ndays]`
+Load Admit_discharge_datafile.xlsx data file, but cut to first [ndays].
+
+### Short run
+`Rscript run-seir.R short Admit_discharge_datafile.xlsx ICY_datafile.xlsx`
+Don't start run from beginning of hospitalization data, but instead load initial state from a previous run for a later date.
+That run has to be carefully prepared top have enough initial variation and started at a relatively quiet part of the epidemic.
+The start session is currently hard coded.
+Short runs were not used for the PNAS paper analysis.
+
+### Additional arguments
+Additional aguments come in the form of keyword:argument
+
+`no:dash` don't produce dashboard csv files
+`no:pdf` don't produce pdf report
+`no:mob` run without mobility data
+
+`name.add:string` add string to output file name
+")
   } else if( args[1] == "history") { #@note history
     if( length(args) < 3) {
       stop("history run requires 2 args: table_file n.max.weeks/days")
