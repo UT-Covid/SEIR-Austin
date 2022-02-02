@@ -23,25 +23,25 @@ Run occurs in 3 stages:
 First argment can be a modifier, or missing.
 
 ### Regular run: 
-Rscript run-seir.R Admit_discharge_datafile.xlsx ICY_datafile.xlsx
+`Rscript run-seir.R Admit_discharge_datafile.xlsx ICY_datafile.xlsx`
 
 ### Continuing previous run:
-Rscript run-seir.R continue Rdata_session_file.Rda
+`Rscript run-seir.R continue Rdata_session_file.Rda`
 stage of run to continue is determined by name of file before/after stage.
 
-Rscript run-seir.R  continue Rdata_session_file.Rda after:stage
+`Rscript run-seir.R  continue Rdata_session_file.Rda after:stage`
 continue run after stage. Possible stages: prepare, mf2, smooth, sim, analysis.
 
 ### History runs for performance analysis
-Rscript run-seir.R history Admit_discharge_datafile.xlsx [ndays]
+`Rscript run-seir.R history Admit_discharge_datafile.xlsx [ndays]`
 Load Admit_discharge_datafile.xlsx data file, but cut to first [ndays].
 
 ### Additional arguments
 Additional aguments come in the form of keyword:argument
 
-no:dash don't produce dashboard csv files
-no:pdf don't produce pdf report
-no:mob run without mobility data
+`no:dash` don't produce dashboard csv files
+`no:pdf` don't produce pdf report
+`no:mob` run without mobility data
 
-name.add:string add string to output file name
+`name.add:string` add string to output file name
 
