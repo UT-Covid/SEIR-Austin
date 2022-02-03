@@ -1,4 +1,4 @@
-# SEIR-Austin
+# SEIR-Austin.
 
 R code for running SEIR model for the city of Austin.
 
@@ -52,4 +52,5 @@ Additional aguments come in the form of keyword:argument
 `no:mob` run without mobility data
 
 `name.add:string` add string to output file name
+
 
